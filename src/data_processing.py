@@ -1,27 +1,19 @@
 import pandas as pd
 import numpy as np
-import torch
-from torch.utils.data import Dataset, DataLoader
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 import os
+import json
+from sklearn.model_selection import train_test_split
+from datetime import datetime
 
-class MushroomDataset(Dataset):
-    def __init__(self, X, y):
-        self.X = torch.tensor(X, dtype=torch.float32)
-        # Reshape for Conv1D: (batch, in_channels=1, sequence_length)
-        self.X = self.X.unsqueeze(1)
-        self.y = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
+from src.data_validation import validate_raw_data
+
+def load_raw_data(data_path="data/raw/agaricus-lepiota.data"):
+    """
+    Đọc dữ liệu thô và gán tên cột.
+    """
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f"Không tìm thấy file dữ liệu tại {data_path}")
         
-    def __len__(self):
-        return len(self.X)
-    
-    def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
-
-def load_and_preprocess_data(data_path="data/agaricus-lepiota.data"):
-    # Cột đầu tiên là nhãn (Target: e = edible, p = poisonous)
-    # Các cột còn lại là features
     columns = [
         "class", "cap-shape", "cap-surface", "cap-color", "bruises", "odor", 
         "gill-attachment", "gill-spacing", "gill-size", "gill-color", 
@@ -32,46 +24,140 @@ def load_and_preprocess_data(data_path="data/agaricus-lepiota.data"):
     ]
     
     df = pd.read_csv(data_path, header=None, names=columns)
-    
-    # Label encoding target (e -> 0, p -> 1)
-    le = LabelEncoder()
-    df["class"] = le.fit_transform(df["class"])
-    
-    # Tách Features (X) và Target (y)
-    X = df.drop("class", axis=1)
-    y = df["class"].values
-    
-    # One-Hot Encoding cho toàn bộ features
-    X_encoded = pd.get_dummies(X)
-    
-    return X_encoded.values, y
+    return df
 
-def get_dataloaders(data_path="data/agaricus-lepiota.data", batch_size=64, test_size=0.15, val_size=0.15, random_state=42):
-    X, y = load_and_preprocess_data(data_path)
+def clean_common_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Tiền xử lý chung: thay thế giá trị thiếu, loại bỏ cột hằng số.
+    KHÔNG encode, KHÔNG tokenization ở đây.
+    """
+    df_clean = df.copy()
     
-    # Chia tập train và tập temp (chứa val + test)
-    # Tỉ lệ test_size tương đối trên tổng thể
-    temp_size = test_size + val_size
-    X_train, X_temp, y_train, y_temp = train_test_split(
-        X, y, test_size=temp_size, random_state=random_state, stratify=y
+    # Xử lý missing values ('?') trong stalk-root
+    if 'stalk-root' in df_clean.columns:
+        df_clean['stalk-root'] = df_clean['stalk-root'].replace('?', 'missing')
+        
+    # Loại bỏ các cột hằng số (ví dụ: veil-type)
+    constant_cols = [col for col in df_clean.columns if df_clean[col].nunique() <= 1]
+    if constant_cols:
+        df_clean = df_clean.drop(columns=constant_cols)
+        
+    return df_clean, constant_cols
+
+def separate_features_target(df: pd.DataFrame):
+    """
+    Tách X (features) và y (nhãn gốc dạng chuỗi 'e'/'p').
+    KHÔNG encode nhãn ở bước này.
+    """
+    y = df['class']
+    X = df.drop(columns=['class'])
+    return X, y
+
+def split_dataset(X: pd.DataFrame, y: pd.Series, test_size=0.15, val_size=0.15, random_state=42):
+    """
+    Chia dữ liệu thành Train, Validation, Test.
+    """
+    # Tính toán tỷ lệ tập validation so với tập dữ liệu sau khi đã lấy ra tập test
+    val_ratio = val_size / (1.0 - test_size)
+    
+    # Lấy ra index để chia
+    indices = np.arange(len(X))
+    
+    # Chia train_val và test
+    train_val_idx, test_idx, _, y_test = train_test_split(
+        indices, y, test_size=test_size, stratify=y, random_state=random_state
     )
     
-    # Chia tiếp tập temp thành val và test
-    val_ratio = val_size / temp_size
-    X_val, X_test, y_val, y_test = train_test_split(
-        X_temp, y_temp, test_size=(1 - val_ratio), random_state=random_state, stratify=y_temp
+    # Chia tiếp train và val từ tập train_val
+    y_train_val = y.iloc[train_val_idx]
+    train_idx, val_idx, _, _ = train_test_split(
+        train_val_idx, y_train_val, test_size=val_ratio, stratify=y_train_val, random_state=random_state
     )
     
-    # Khởi tạo Datasets
-    train_dataset = MushroomDataset(X_train, y_train)
-    val_dataset = MushroomDataset(X_val, y_val)
-    test_dataset = MushroomDataset(X_test, y_test)
+    X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
+    X_val, y_val = X.iloc[val_idx], y.iloc[val_idx]
+    X_test, y_test = X.iloc[test_idx], y.iloc[test_idx]
     
-    # Khởi tạo DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    return (X_train, X_val, X_test, y_train, y_val, y_test), (train_idx, val_idx, test_idx)
+
+def build_preprocessing_report(df_raw, df_clean, dropped_cols, splits, missing_before):
+    """
+    Tạo báo cáo metadata.
+    """
+    X_train, X_val, X_test, y_train, y_val, y_test = splits
     
-    input_dim = X.shape[1] # Số lượng features sau khi one-hot encode
+    report = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "samples_before": len(df_raw),
+        "samples_after": len(df_clean),
+        "features_before": df_raw.shape[1] - 1,
+        "features_after": df_clean.shape[1] - 1,
+        "missing_before": missing_before,
+        "missing_after": (df_clean == "?").sum().sum(),
+        "duplicate_rows": int(df_raw.duplicated().sum()),
+        "constant_columns": dropped_cols,
+        "dropped_columns": dropped_cols,
+        "missing_strategy": {
+            "stalk-root": "separate_category (missing)"
+        },
+        "label_mapping": {
+            "e": 0,
+            "p": 1
+        },
+        "split_ratio": {
+            "train": len(X_train) / len(df_raw),
+            "validation": len(X_val) / len(df_raw),
+            "test": len(X_test) / len(df_raw)
+        },
+        "split_counts": {
+            "train": len(X_train),
+            "validation": len(X_val),
+            "test": len(X_test)
+        },
+        "random_state": 42
+    }
+    return report
+
+def save_processed_data(splits, indices, metadata, output_dir="data/processed"):
+    """
+    Lưu trữ dữ liệu trung gian và metadata.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    X_train, X_val, X_test, y_train, y_val, y_test = splits
+    train_idx, val_idx, test_idx = indices
     
-    return train_loader, val_loader, test_loader, input_dim
+    # Save CSVs
+    X_train.to_csv(f"{output_dir}/X_train.csv", index=False)
+    X_val.to_csv(f"{output_dir}/X_val.csv", index=False)
+    X_test.to_csv(f"{output_dir}/X_test.csv", index=False)
+    y_train.to_csv(f"{output_dir}/y_train.csv", index=False)
+    y_val.to_csv(f"{output_dir}/y_val.csv", index=False)
+    y_test.to_csv(f"{output_dir}/y_test.csv", index=False)
+    
+    # Save indices
+    np.save(f"{output_dir}/train_indices.npy", train_idx)
+    np.save(f"{output_dir}/val_indices.npy", val_idx)
+    np.save(f"{output_dir}/test_indices.npy", test_idx)
+    
+    # Save metadata
+    with open(f"{output_dir}/preprocessing_metadata.json", "w", encoding='utf-8') as f:
+        json.dump(metadata, f, indent=4, ensure_ascii=False)
+
+def run_common_preprocessing_pipeline():
+    """
+    Thực thi toàn bộ luồng tiền xử lý chung.
+    """
+    df_raw = load_raw_data()
+    validation_results = validate_raw_data(df_raw)
+    
+    missing_before = validation_results["missing_question_marks"]
+    
+    df_clean, dropped_cols = clean_common_data(df_raw)
+    X, y = separate_features_target(df_clean)
+    
+    splits, indices = split_dataset(X, y)
+    
+    metadata = build_preprocessing_report(df_raw, df_clean, dropped_cols, splits, missing_before)
+    save_processed_data(splits, indices, metadata)
+    
+    return df_raw, df_clean, metadata, validation_results
