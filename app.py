@@ -158,19 +158,7 @@ def plot_split_distribution(y_train, y_val, y_test):
     return fig
 
 
-def render_validation_checks(validation, meta, y_train, y_val, y_test):
-    all_labels = set(y_train.unique()) | set(y_val.unique()) | set(y_test.unique())
-    checks = [
-        ("Không còn ký hiệu '?' chưa xử lý", meta['missing_after'] == 0),
-        ("Không còn cột veil-type", 'veil-type' in meta.get('dropped_columns', [])),
-        ("Nhãn chỉ gồm 'e' và 'p'", all_labels == {'e', 'p'}),
-        ("Tổng mẫu sau chia = tổng ban đầu", len(y_train) + len(y_val) + len(y_test) == meta['samples_before']),
-        ("Dữ liệu thô hợp lệ", validation['status'] == 'pass'),
-    ]
-    for label, passed in checks:
-        icon = "✅" if passed else "❌"
-        css = "validation-pass" if passed else "validation-fail"
-        st.markdown(f'<div class="{css}">{icon} {label}</div>', unsafe_allow_html=True)
+
 
 
 def render_abbreviation_table(feature_name):
@@ -285,18 +273,8 @@ if page == "📄 Dashboard EDA":
         render_abbreviation_table(sel)
     st.markdown("---")
 
-    # ── 6. So sánh trước / sau ──
-    st.header("6 · So sánh trước & sau tiền xử lý")
-    comp = pd.DataFrame({
-        "Chỉ tiêu": ["Số mẫu", "Số đặc trưng", "Ký hiệu '?'", "Cột hằng số", "Số lớp"],
-        "Trước": [metadata["samples_before"], metadata["features_before"], metadata["missing_before"], len(metadata["constant_columns"]), 2],
-        "Sau": [metadata["samples_after"], metadata["features_after"], metadata["missing_after"], 0, 2]
-    })
-    st.table(comp)
-    st.markdown("---")
-
-    # ── 7. Train / Val / Test ──
-    st.header("7 · Phân chia tập dữ liệu")
+    # ── 6. Train / Val / Test ──
+    st.header("6 · Phân chia tập dữ liệu")
     c1, c2, c3 = st.columns(3)
     c1.metric("Train (70%)", f"{metadata['split_counts']['train']:,}")
     c2.metric("Validation (15%)", f"{metadata['split_counts']['validation']:,}")
@@ -304,52 +282,51 @@ if page == "📄 Dashboard EDA":
     st.pyplot(plot_split_distribution(y_train, y_val, y_test))
     st.markdown("---")
 
-    # ── 8. Validation checks ──
-    st.header("8 · Kiểm tra toàn vẹn dữ liệu")
-    render_validation_checks(validation_results, metadata, y_train, y_val, y_test)
-    st.markdown("---")
-
-    # ── 9. Metadata ──
-    st.header("9 · Metadata")
-    with st.expander("Xem preprocessing_metadata.json"):
-        st.json(metadata)
 
 # ═══════════════════════════════════════════════
-#  TRANG 2: HUẤN LUYỆN CNN
+#  TRANG 2: HUẤN LUYỆN
 # ═══════════════════════════════════════════════
 
 elif page == "⚙️ Huấn luyện":
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    import time
 
-    from src.preprocessing.cnn_preprocessing import prepare_cnn_dataloaders
-    from src.cnn_model import MushroomCNN1D
-    from src.engine import train_step, eval_step
+    st.title("⚙️ Huấn luyện Mô hình")
 
-    st.title("⚙️ Huấn luyện CNN 1D")
+    # ── Chọn mô hình ──
+    model_type = st.selectbox("Chọn mô hình", ["CNN 1D", "Logistic Regression"])
 
-    # ── Sidebar: Hyperparameters ──
+    # ── Sidebar chung ──
     st.sidebar.header("Tên thực nghiệm")
     exp_name = st.sidebar.text_input("Experiment Name", value=datetime.now().strftime("Run_%H_%M_%S"))
     st.session_state['exp_name'] = exp_name
 
-    st.sidebar.header("Siêu tham số")
-    batch_size = st.sidebar.selectbox("Batch Size", [16, 32, 64, 128], index=2)
-    epochs = st.sidebar.slider("Epochs", 5, 100, 30, step=5)
-    learning_rate = st.sidebar.selectbox("Learning Rate", [0.01, 0.005, 0.001, 0.0005, 0.0001], index=2)
+    # ══════════════════════════════════════════
+    #  CNN 1D
+    # ══════════════════════════════════════════
+    if model_type == "CNN 1D":
+        import torch
+        import torch.nn as nn
+        import torch.optim as optim
+        import time
 
-    st.sidebar.header("Kiến trúc CNN")
-    embed_dim = st.sidebar.selectbox("Embedding Dim", [8, 16, 32], index=1)
-    num_filters = st.sidebar.selectbox("Số Filters", [16, 32, 64], index=1)
-    kernel_size = st.sidebar.selectbox("Kernel Size", [3, 5, 7], index=0)
-    dropout_rate = st.sidebar.slider("Dropout Rate", 0.0, 0.5, 0.3, step=0.05)
-    use_batch_norm = st.sidebar.checkbox("Batch Normalization", value=True)
+        from src.preprocessing.cnn_preprocessing import prepare_cnn_dataloaders
+        from src.cnn_model import MushroomCNN1D
+        from src.engine import train_step, eval_step
 
-    # ── Hiển thị kiến trúc ──
-    st.subheader("Kiến trúc mô hình")
-    arch_text = f"""
+        st.sidebar.header("Siêu tham số")
+        batch_size = st.sidebar.selectbox("Batch Size", [16, 32, 64, 128], index=2)
+        epochs = st.sidebar.slider("Epochs", 5, 100, 30, step=5)
+        learning_rate = st.sidebar.selectbox("Learning Rate", [0.01, 0.005, 0.001, 0.0005, 0.0001], index=2)
+
+        st.sidebar.header("Kiến trúc CNN")
+        embed_dim = st.sidebar.selectbox("Embedding Dim", [8, 16, 32], index=1)
+        num_filters = st.sidebar.selectbox("Số Filters", [16, 32, 64], index=1)
+        kernel_size = st.sidebar.selectbox("Kernel Size", [3, 5, 7], index=0)
+        dropout_rate = st.sidebar.slider("Dropout Rate", 0.0, 0.5, 0.3, step=0.05)
+        use_batch_norm = st.sidebar.checkbox("Batch Normalization", value=True)
+
+        # ── Hiển thị kiến trúc ──
+        st.subheader("Kiến trúc mô hình")
+        arch_text = f"""
 | Lớp | Chi tiết |
 |---|---|
 | **Embedding** | vocab_size → {embed_dim}d |
@@ -363,129 +340,200 @@ elif page == "⚙️ Huấn luyện":
 | **Loss** | BCELoss |
 | **Optimizer** | Adam (lr={learning_rate}) |
 """
-    st.markdown(arch_text)
+        st.markdown(arch_text)
 
-    # ── Nút Huấn luyện ──
-    if st.button("🚀 Bắt đầu Huấn luyện", use_container_width=True):
-        progress = st.progress(0)
-        status = st.empty()
+        # ── Nút Huấn luyện ──
+        if st.button("🚀 Bắt đầu Huấn luyện", use_container_width=True):
+            progress = st.progress(0)
+            status = st.empty()
 
-        col_l, col_r = st.columns(2)
-        with col_l:
-            st.subheader("Loss")
-            loss_chart = st.empty()
-        with col_r:
-            st.subheader("Accuracy")
-            acc_chart = st.empty()
+            col_l, col_r = st.columns(2)
+            with col_l:
+                st.subheader("Loss")
+                loss_chart = st.empty()
+            with col_r:
+                st.subheader("Accuracy")
+                acc_chart = st.empty()
 
-        # 1. Chuẩn bị dữ liệu
-        status.text("Đang tokenize dữ liệu...")
-        train_loader, val_loader, test_loader, vocab = prepare_cnn_dataloaders(
-            X_train, y_train, X_val, y_val, X_test, y_test, batch_size=batch_size
-        )
+            # 1. Chuẩn bị dữ liệu
+            status.text("Đang tokenize dữ liệu...")
+            train_loader, val_loader, test_loader, vocab = prepare_cnn_dataloaders(
+                X_train, y_train, X_val, y_val, X_test, y_test, batch_size=batch_size
+            )
 
-        # 2. Khởi tạo mô hình
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = MushroomCNN1D(
-            vocab_size=len(vocab),
-            embed_dim=embed_dim,
-            num_filters=num_filters,
-            kernel_size=kernel_size,
-            dropout_rate=dropout_rate,
-            use_batch_norm=use_batch_norm,
-            seq_len=21
-        ).to(device)
+            # 2. Khởi tạo mô hình
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model = MushroomCNN1D(
+                vocab_size=len(vocab),
+                embed_dim=embed_dim,
+                num_filters=num_filters,
+                kernel_size=kernel_size,
+                dropout_rate=dropout_rate,
+                use_batch_norm=use_batch_norm,
+                seq_len=21
+            ).to(device)
 
-        criterion = nn.BCELoss()
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+            criterion = nn.BCELoss()
+            optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-        # 3. Vòng lặp huấn luyện
-        history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
-        best_val_loss = float('inf')
-        os.makedirs("models", exist_ok=True)
+            # 3. Vòng lặp huấn luyện
+            history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
+            best_val_loss = float('inf')
+            os.makedirs("models", exist_ok=True)
 
-        # Lưu cấu hình vào session_state
-        st.session_state['cnn_config'] = {
-            'vocab_size': len(vocab), 'embed_dim': embed_dim,
-            'num_filters': num_filters, 'kernel_size': kernel_size,
-            'dropout_rate': dropout_rate, 'use_batch_norm': use_batch_norm
-        }
-        st.session_state['vocab'] = vocab
+            st.session_state['cnn_config'] = {
+                'vocab_size': len(vocab), 'embed_dim': embed_dim,
+                'num_filters': num_filters, 'kernel_size': kernel_size,
+                'dropout_rate': dropout_rate, 'use_batch_norm': use_batch_norm
+            }
+            st.session_state['vocab'] = vocab
 
-        status.text(f"Huấn luyện trên: {device}")
+            status.text(f"Huấn luyện trên: {device}")
 
-        for epoch in range(epochs):
-            t_loss, t_acc = train_step(model, train_loader, criterion, optimizer, device)
-            v_loss, v_acc, _, _ = eval_step(model, val_loader, criterion, device)
+            for epoch in range(epochs):
+                t_loss, t_acc = train_step(model, train_loader, criterion, optimizer, device)
+                v_loss, v_acc, _, _ = eval_step(model, val_loader, criterion, device)
 
-            history['train_loss'].append(t_loss)
-            history['val_loss'].append(v_loss)
-            history['train_acc'].append(t_acc)
-            history['val_acc'].append(v_acc)
+                history['train_loss'].append(t_loss)
+                history['val_loss'].append(v_loss)
+                history['train_acc'].append(t_acc)
+                history['val_acc'].append(v_acc)
 
-            if v_loss < best_val_loss:
-                best_val_loss = v_loss
-                torch.save(model.state_dict(), "models/temp_best_cnn_model.pth")
+                if v_loss < best_val_loss:
+                    best_val_loss = v_loss
+                    torch.save(model.state_dict(), "models/temp_best_cnn_model.pth")
 
-            loss_chart.line_chart(pd.DataFrame({
-                'Train Loss': history['train_loss'],
-                'Val Loss': history['val_loss']
-            }))
-            acc_chart.line_chart(pd.DataFrame({
-                'Train Acc': history['train_acc'],
-                'Val Acc': history['val_acc']
-            }))
+                loss_chart.line_chart(pd.DataFrame({
+                    'Train Loss': history['train_loss'],
+                    'Val Loss': history['val_loss']
+                }))
+                acc_chart.line_chart(pd.DataFrame({
+                    'Train Acc': history['train_acc'],
+                    'Val Acc': history['val_acc']
+                }))
 
-            progress.progress((epoch + 1) / epochs)
-            status.text(f"Epoch {epoch+1}/{epochs} | Train Loss: {t_loss:.4f} | Val Loss: {v_loss:.4f} | Val Acc: {v_acc:.4f}")
-            time.sleep(0.02)
+                progress.progress((epoch + 1) / epochs)
+                status.text(f"Epoch {epoch+1}/{epochs} | Train Loss: {t_loss:.4f} | Val Loss: {v_loss:.4f} | Val Acc: {v_acc:.4f}")
+                time.sleep(0.02)
 
-        st.success(f"✅ Hoàn tất! Best Val Loss: {best_val_loss:.4f}. Đang đánh giá trên tập Test...")
+            st.success(f"✅ Hoàn tất! Best Val Loss: {best_val_loss:.4f}. Đang đánh giá trên tập Test...")
 
-        # Đánh giá trên tập test để lưu log
-        from src.engine import evaluate_metrics
-        model.load_state_dict(torch.load("models/temp_best_cnn_model.pth"))
-        model.eval()
-        
-        _, test_acc, preds, targets = eval_step(model, test_loader, criterion, device)
-        metrics = evaluate_metrics(targets, preds)
-        
-        # Ghi log
-        os.makedirs("experiments", exist_ok=True)
-        log_file = "experiments/experiments_log.csv"
-        file_exists = os.path.isfile(log_file)
-        
-        global_best_acc = 0.0
-        if file_exists:
-            try:
-                df_logs = pd.read_csv(log_file)
-                if not df_logs.empty and 'Test Acc' in df_logs.columns:
-                    global_best_acc = df_logs['Test Acc'].max()
-            except Exception:
-                pass
-                
-        is_new_best = metrics['Accuracy'] > global_best_acc
-        run_name = st.session_state.get('exp_name', "Run")
-        cm_str = str(metrics['Confusion Matrix'].tolist())
-        
-        with open(log_file, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow(["Run Name", "Batch Size", "Epochs", "LR", "Embed Dim", "Filters", "Kernel", "Dropout", "BatchNorm", "Best Val Loss", "Test Acc", "Precision", "Recall", "F1", "Confusion Matrix"])
-            writer.writerow([run_name, batch_size, epochs, learning_rate, embed_dim, num_filters, kernel_size, dropout_rate, use_batch_norm, f"{best_val_loss:.4f}", f"{metrics['Accuracy']:.4f}", f"{metrics['Precision']:.4f}", f"{metrics['Recall']:.4f}", f"{metrics['F1-Score']:.4f}", cm_str])
-        
-        if is_new_best:
-            if os.path.exists("models/temp_best_cnn_model.pth"):
-                os.rename("models/temp_best_cnn_model.pth", "models/best_cnn_model.pth")
-            with open("models/best_cnn_config.json", "w") as f:
-                json.dump(st.session_state['cnn_config'], f)
-            st.success(f"🏆 Cấu hình này đã đạt Test Accuracy tốt nhất ({metrics['Accuracy']:.4f}) và được lưu làm Best Model!")
-        else:
-            if os.path.exists("models/temp_best_cnn_model.pth"):
-                os.remove("models/temp_best_cnn_model.pth")
-            st.info(f"💾 Cấu hình này đạt Test Accuracy {metrics['Accuracy']:.4f} (Kỷ lục: {global_best_acc:.4f}). Kết quả đã được lưu lịch sử nhưng không ghi đè Best Model.")
+            # Đánh giá trên tập test
+            from src.engine import evaluate_metrics
+            model.load_state_dict(torch.load("models/temp_best_cnn_model.pth"))
+            model.eval()
 
-        st.info("Chuyển sang trang **📊 Đánh giá** để xem lịch sử và so sánh kết quả.")
+            _, test_acc, preds, targets = eval_step(model, test_loader, criterion, device)
+            metrics = evaluate_metrics(targets, preds)
+
+            # Ghi log
+            os.makedirs("experiments", exist_ok=True)
+            log_file = "experiments/experiments_log.csv"
+            file_exists = os.path.isfile(log_file)
+
+            global_best_acc = 0.0
+            if file_exists:
+                try:
+                    df_logs = pd.read_csv(log_file)
+                    if not df_logs.empty and 'Test Acc' in df_logs.columns:
+                        cnn_logs = df_logs[df_logs['Model'] == 'CNN'] if 'Model' in df_logs.columns else df_logs
+                        if not cnn_logs.empty:
+                            global_best_acc = cnn_logs['Test Acc'].max()
+                except Exception:
+                    pass
+
+            is_new_best = metrics['Accuracy'] > global_best_acc
+            run_name = st.session_state.get('exp_name', "Run")
+            cm_str = str(metrics['Confusion Matrix'].tolist())
+
+            with open(log_file, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow(["Model", "Run Name", "Hyperparameters", "Test Acc", "Precision", "Recall", "F1", "Confusion Matrix"])
+                hp_str = f"batch={batch_size}, epochs={epochs}, lr={learning_rate}, embed={embed_dim}, filters={num_filters}, kernel={kernel_size}, dropout={dropout_rate}, bn={use_batch_norm}"
+                writer.writerow(["CNN", run_name, hp_str, f"{metrics['Accuracy']:.4f}", f"{metrics['Precision']:.4f}", f"{metrics['Recall']:.4f}", f"{metrics['F1-Score']:.4f}", cm_str])
+
+            if is_new_best:
+                if os.path.exists("models/temp_best_cnn_model.pth"):
+                    os.replace("models/temp_best_cnn_model.pth", "models/best_cnn_model.pth")
+                with open("models/best_cnn_config.json", "w") as f:
+                    json.dump(st.session_state['cnn_config'], f)
+                st.success(f"🏆 Cấu hình này đã đạt Test Accuracy tốt nhất ({metrics['Accuracy']:.4f}) và được lưu làm Best Model!")
+            else:
+                if os.path.exists("models/temp_best_cnn_model.pth"):
+                    os.remove("models/temp_best_cnn_model.pth")
+                st.info(f"💾 Test Accuracy {metrics['Accuracy']:.4f} (Kỷ lục CNN: {global_best_acc:.4f}). Kết quả đã lưu lịch sử.")
+
+    # ══════════════════════════════════════════
+    #  LOGISTIC REGRESSION
+    # ══════════════════════════════════════════
+    else:
+        from src.preprocessing.onehot_preprocessing import prepare_ml_data
+        from src.logistic_model import train_logistic, evaluate_logistic
+
+        st.sidebar.header("Siêu tham số")
+        C_val = st.sidebar.selectbox("C (Regularization)", [0.01, 0.1, 1.0, 10.0, 100.0], index=2)
+        max_iter = st.sidebar.selectbox("Max Iterations", [100, 200, 500, 1000], index=1)
+        solver = st.sidebar.selectbox("Solver", ["lbfgs", "liblinear", "newton-cg", "saga"], index=0)
+
+        # ── Hiển thị kiến trúc ──
+        st.subheader("Kiến trúc mô hình")
+        arch_text = f"""
+| Thành phần | Chi tiết |
+|---|---|
+| **Tiền xử lý** | One-Hot Encoding |
+| **Mô hình** | Logistic Regression (sklearn) |
+| **C** | {C_val} |
+| **Max Iterations** | {max_iter} |
+| **Solver** | {solver} |
+| **Random State** | 42 |
+"""
+        st.markdown(arch_text)
+
+        # ── Nút Huấn luyện ──
+        if st.button("🚀 Bắt đầu Huấn luyện", use_container_width=True):
+            status = st.empty()
+
+            # 1. Chuẩn bị dữ liệu
+            status.text("Đang One-Hot Encoding dữ liệu...")
+            X_tr_enc, X_val_enc, X_te_enc, y_tr_enc, y_val_enc, y_te_enc, encoder = prepare_ml_data(
+                X_train, y_train, X_val, y_val, X_test, y_test
+            )
+            st.info(f"Số đặc trưng sau One-Hot Encoding: {X_tr_enc.shape[1]}")
+
+            # 2. Huấn luyện
+            status.text("Đang huấn luyện Logistic Regression...")
+            lr_model = train_logistic(X_tr_enc, y_tr_enc, C=C_val, max_iter=max_iter, solver=solver)
+
+            # 3. Đánh giá trên Train, Val, Test
+            metrics_train = evaluate_logistic(lr_model, X_tr_enc, y_tr_enc)
+            metrics_val = evaluate_logistic(lr_model, X_val_enc, y_val_enc)
+            metrics_test = evaluate_logistic(lr_model, X_te_enc, y_te_enc)
+
+            st.success("✅ Hoàn tất huấn luyện!")
+
+            # Hiển thị kết quả 3 tập
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Train Accuracy", f"{metrics_train['Accuracy']:.4f}")
+            col2.metric("Val Accuracy", f"{metrics_val['Accuracy']:.4f}")
+            col3.metric("Test Accuracy", f"{metrics_test['Accuracy']:.4f}")
+
+            # 4. Ghi log
+            os.makedirs("experiments", exist_ok=True)
+            log_file = "experiments/experiments_log.csv"
+            file_exists = os.path.isfile(log_file)
+
+            run_name = st.session_state.get('exp_name', "Run")
+            cm_str = str(metrics_test['Confusion Matrix'].tolist())
+            hp_str = f"C={C_val}, max_iter={max_iter}, solver={solver}"
+
+            with open(log_file, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow(["Model", "Run Name", "Hyperparameters", "Test Acc", "Precision", "Recall", "F1", "Confusion Matrix"])
+                writer.writerow(["Logistic", run_name, hp_str, f"{metrics_test['Accuracy']:.4f}", f"{metrics_test['Precision']:.4f}", f"{metrics_test['Recall']:.4f}", f"{metrics_test['F1-Score']:.4f}", cm_str])
+
+            status.text("")
 
 # ═══════════════════════════════════════════════
 #  TRANG 3: ĐÁNH GIÁ & SO SÁNH
@@ -501,6 +549,11 @@ elif page == "📊 Đánh giá":
         st.warning("Chưa có dữ liệu thực nghiệm. Vui lòng huấn luyện ít nhất một cấu hình.")
     else:
         df_logs = pd.read_csv(log_file)
+
+        # Tương thích ngược: nếu file cũ không có cột Model → gán "CNN"
+        if 'Model' not in df_logs.columns:
+            df_logs.insert(0, 'Model', 'CNN')
+
         if df_logs.empty:
             st.warning("Chưa có dữ liệu thực nghiệm.")
         else:
@@ -508,20 +561,19 @@ elif page == "📊 Đánh giá":
 
             # ── 1. Bảng so sánh ──
             st.header("1 · Bảng so sánh thực nghiệm")
-            display_cols = ["Run Name", "Batch Size", "Epochs", "LR", "Embed Dim",
-                            "Filters", "Kernel", "Dropout", "BatchNorm",
-                            "Best Val Loss", "Test Acc", "Precision", "Recall", "F1"]
+            display_cols = [c for c in ["Model", "Run Name", "Hyperparameters", "Test Acc", "Precision", "Recall", "F1"] if c in df_sorted.columns]
             st.dataframe(df_sorted[display_cols], use_container_width=True)
-
             st.markdown("---")
 
             # ── 2. Biểu đồ so sánh Metrics ──
             st.header("2 · Biểu đồ so sánh Metrics")
             metric_cols = ["Test Acc", "Precision", "Recall", "F1"]
-            run_names = df_sorted["Run Name"].tolist()
+            # Tạo nhãn kết hợp Model + Run Name
+            df_sorted["Label"] = df_sorted["Model"] + " – " + df_sorted["Run Name"]
+            run_labels = df_sorted["Label"].tolist()
 
-            fig, ax = plt.subplots(figsize=(max(8, len(run_names) * 2.5), 5))
-            x = np.arange(len(run_names))
+            fig, ax = plt.subplots(figsize=(max(8, len(run_labels) * 2.5), 5))
+            x = np.arange(len(run_labels))
             width = 0.18
             colors = [COLOR_EDIBLE, COLOR_POISONOUS, COLOR_NEUTRAL, COLOR_BAR]
 
@@ -534,9 +586,9 @@ elif page == "📊 Đánh giá":
                             f"{v:.3f}", ha='center', va='bottom', fontsize=7.5)
 
             ax.set_xticks(x + width * 1.5)
-            ax.set_xticklabels(run_names, rotation=45, ha='right')
+            ax.set_xticklabels(run_labels, rotation=45, ha='right')
             ax.set_ylabel("Giá trị")
-            ax.set_title("So sánh Metrics giữa các cấu hình", fontweight='bold')
+            ax.set_title("So sánh Metrics giữa các mô hình", fontweight='bold')
             ax.legend(loc='lower right')
             ax.set_ylim(0, 1.08)
             ax.spines['top'].set_visible(False)
@@ -547,36 +599,34 @@ elif page == "📊 Đánh giá":
 
             # ── 3. Chi tiết từng cấu hình ──
             st.header("3 · Chi tiết từng cấu hình")
-            selected_run = st.selectbox("Chọn cấu hình:", run_names)
-            row = df_sorted[df_sorted["Run Name"] == selected_run].iloc[0]
+            selected_run = st.selectbox("Chọn cấu hình:", run_labels)
+            row = df_sorted[df_sorted["Label"] == selected_run].iloc[0]
 
             col_metric, col_cm = st.columns([1, 1])
 
             with col_metric:
                 st.subheader("Metrics")
                 metrics_table = pd.DataFrame({
-                    "Metric": ["Accuracy", "Precision", "Recall", "F1-Score", "Best Val Loss"],
+                    "Metric": ["Model", "Accuracy", "Precision", "Recall", "F1-Score"],
                     "Giá trị": [
+                        str(row['Model']),
                         f"{float(row['Test Acc']):.4f}",
                         f"{float(row['Precision']):.4f}",
                         f"{float(row['Recall']):.4f}",
-                        f"{float(row['F1']):.4f}",
-                        f"{float(row['Best Val Loss']):.4f}"
+                        f"{float(row['F1']):.4f}"
                     ]
                 })
                 st.table(metrics_table)
 
                 st.subheader("Siêu tham số")
-                hp_table = pd.DataFrame({
-                    "Tham số": ["Batch Size", "Epochs", "Learning Rate",
-                                "Embed Dim", "Filters", "Kernel", "Dropout", "BatchNorm"],
-                    "Giá trị": [
-                        str(row["Batch Size"]), str(row["Epochs"]), str(row["LR"]),
-                        str(row["Embed Dim"]), str(row["Filters"]), str(row["Kernel"]),
-                        str(row["Dropout"]), str(row["BatchNorm"])
-                    ]
-                })
-                st.table(hp_table)
+                hp_str = str(row.get("Hyperparameters", "N/A"))
+                if hp_str and hp_str != "nan":
+                    hp_pairs = [p.strip() for p in hp_str.split(",")]
+                    hp_table = pd.DataFrame({
+                        "Tham số": [p.split("=")[0].strip() for p in hp_pairs if "=" in p],
+                        "Giá trị": [p.split("=")[1].strip() for p in hp_pairs if "=" in p]
+                    })
+                    st.table(hp_table)
 
             with col_cm:
                 st.subheader("Confusion Matrix")
@@ -588,12 +638,10 @@ elif page == "📊 Đánh giá":
                                 yticklabels=['Edible (0)', 'Poisonous (1)'], ax=ax_cm)
                     ax_cm.set_ylabel("Nhãn thực tế")
                     ax_cm.set_xlabel("Nhãn dự đoán")
-                    ax_cm.set_title(f"Confusion Matrix – {selected_run}", fontweight='bold')
+                    ax_cm.set_title(f"Confusion Matrix – {row['Run Name']}", fontweight='bold')
                     fig_cm.tight_layout()
                     st.pyplot(fig_cm)
                 except Exception as e:
                     st.error(f"Không thể hiển thị Confusion Matrix: {e}")
-
-
 
 

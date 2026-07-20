@@ -1,4 +1,5 @@
-Run Name,Batch Size,Epochs,LR,Embed Dim,Filters,Kernel,Dropout,BatchNorm,Best Val Loss,Test Acc,Precision,Recall,F1,Confusion Matrix
-Run_160827,64,30,0.001,16,32,3,0.3,True,0.0000,1.0000,1.0000,1.0000,1.0000,"[[631, 0], [0, 588]]"
-Run_161055,16,30,0.0001,8,16,3,0.15,False,0.0002,1.0000,1.0000,1.0000,1.0000,"[[631, 0], [0, 588]]"
-Run_161549,64,30,0.001,16,32,3,0.3,False,0.0000,1.0000,1.0000,1.0000,1.0000,"[[631, 0], [0, 588]]"
+Model,Run Name,Hyperparameters,Test Acc,Precision,Recall,F1,Confusion Matrix
+CNN,Run_22_42_43,"batch=64, epochs=30, lr=0.001, embed=16, filters=32, kernel=3, dropout=0.3, bn=True",1.0000,1.0000,1.0000,1.0000,"[[631, 0], [0, 588]]"
+CNN,Run_22_46_36,"batch=64, epochs=30, lr=0.001, embed=16, filters=32, kernel=3, dropout=0.3, bn=True",1.0000,1.0000,1.0000,1.0000,"[[631, 0], [0, 588]]"
+Logistic,Run_22_47_51,"C=1.0, max_iter=200, solver=lbfgs",1.0000,1.0000,1.0000,1.0000,"[[631, 0], [0, 588]]"
+Logistic,Run_22_49_07,"C=1.0, max_iter=200, solver=liblinear",1.0000,1.0000,1.0000,1.0000,"[[631, 0], [0, 588]]"
