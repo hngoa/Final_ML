@@ -1,0 +1,4 @@
+Run Name,Batch Size,Epochs,LR,Embed Dim,Filters,Kernel,Dropout,BatchNorm,Best Val Loss,Test Acc,Precision,Recall,F1,Confusion Matrix
+Run_160827,64,30,0.001,16,32,3,0.3,True,0.0000,1.0000,1.0000,1.0000,1.0000,"[[631, 0], [0, 588]]"
+Run_161055,16,30,0.0001,8,16,3,0.15,False,0.0002,1.0000,1.0000,1.0000,1.0000,"[[631, 0], [0, 588]]"
+Run_161549,64,30,0.001,16,32,3,0.3,False,0.0000,1.0000,1.0000,1.0000,1.0000,"[[631, 0], [0, 588]]"

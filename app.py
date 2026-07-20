@@ -3,15 +3,16 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+import os
+import csv
+import json
+from datetime import datetime
+import ast
 matplotlib.rcParams['font.size'] = 11
 
 from src.data_processing import (
     load_raw_data,
-    validate_raw_data,
-    clean_common_data,
-    separate_features_target,
-    split_dataset,
-    build_preprocessing_report
+    load_processed_data
 )
 
 # ── Màu sắc trung tính xuyên suốt ──
@@ -193,14 +194,14 @@ load_css("assets/style.css")
 
 @st.cache_data
 def load_all_data():
+    processed_dir = "data/processed"
+    if not os.path.exists(f"{processed_dir}/X_train.csv"):
+        raise FileNotFoundError(
+            "Chưa có dữ liệu đã xử lý. Vui lòng chạy: python preprocess.py"
+        )
     df_raw = load_raw_data()
-    val_results = validate_raw_data(df_raw)
-    missing_before = val_results["missing_question_marks"]
-    df_clean, dropped = clean_common_data(df_raw)
-    X, y = separate_features_target(df_clean)
-    splits, _ = split_dataset(X, y)
-    meta = build_preprocessing_report(df_raw, df_clean, dropped, splits, missing_before)
-    return df_raw, df_clean, meta, val_results, splits
+    df_clean, metadata, validation_results, splits = load_processed_data()
+    return df_raw, df_clean, metadata, validation_results, splits
 
 try:
     df_raw, df_clean, metadata, validation_results, splits = load_all_data()
@@ -210,12 +211,27 @@ except Exception as e:
     st.stop()
 
 # ── SIDEBAR ──
-st.sidebar.title("🍄")
-page = st.sidebar.selectbox("Chọn trang:", [
-    "📄 Dashboard EDA",
-    "⚙️ Huấn luyện",
-    "📊 Đánh giá"
-])
+if os.path.exists("assets/logo.png"):
+    st.sidebar.image("assets/logo.png", use_container_width=True)
+else:
+    st.sidebar.title("🍄 Mushroom")
+
+if 'page' not in st.session_state:
+    st.session_state['page'] = "📄 Dashboard EDA"
+
+def set_page(page_name):
+    st.session_state['page'] = page_name
+
+st.sidebar.markdown("### Menu")
+if st.sidebar.button("📄 Dashboard EDA", use_container_width=True):
+    set_page("📄 Dashboard EDA")
+if st.sidebar.button("⚙️ Huấn luyện", use_container_width=True):
+    set_page("⚙️ Huấn luyện")
+
+if st.sidebar.button("📊 Đánh giá", use_container_width=True):
+    set_page("📊 Đánh giá")
+
+page = st.session_state['page']
 
 # ═══════════════════════════════════════════════
 #  TRANG 1: DASHBOARD EDA
@@ -234,7 +250,7 @@ if page == "📄 Dashboard EDA":
     with left:
         st.header("2 · Phân bố nhãn")
         st.pyplot(plot_class_distribution(df_raw))
-        st.caption("Hai lớp gần cân bằng → không cần SMOTE / Resampling.")
+
 
     with right:
         st.header("3 · Giá trị khuyết thiếu")
@@ -253,7 +269,7 @@ if page == "📄 Dashboard EDA":
     # ── 4. Cardinality ──
     st.header("4 · Cardinality")
     st.pyplot(plot_feature_cardinality(df_raw))
-    st.caption("Cột `veil-type` (Cardinality = 1) là hằng số → đã loại bỏ.")
+
     st.markdown("---")
 
     # ── 5. Feature vs Target + Abbreviation Table ──
@@ -307,8 +323,7 @@ elif page == "⚙️ Huấn luyện":
     import torch.nn as nn
     import torch.optim as optim
     import time
-    import os
-    import seaborn as sns
+
     from src.preprocessing.cnn_preprocessing import prepare_cnn_dataloaders
     from src.cnn_model import MushroomCNN1D
     from src.engine import train_step, eval_step
@@ -316,6 +331,10 @@ elif page == "⚙️ Huấn luyện":
     st.title("⚙️ Huấn luyện CNN 1D")
 
     # ── Sidebar: Hyperparameters ──
+    st.sidebar.header("Tên thực nghiệm")
+    exp_name = st.sidebar.text_input("Experiment Name", value=datetime.now().strftime("Run_%H_%M_%S"))
+    st.session_state['exp_name'] = exp_name
+
     st.sidebar.header("Siêu tham số")
     batch_size = st.sidebar.selectbox("Batch Size", [16, 32, 64, 128], index=2)
     epochs = st.sidebar.slider("Epochs", 5, 100, 30, step=5)
@@ -406,7 +425,7 @@ elif page == "⚙️ Huấn luyện":
 
             if v_loss < best_val_loss:
                 best_val_loss = v_loss
-                torch.save(model.state_dict(), "models/best_cnn_model.pth")
+                torch.save(model.state_dict(), "models/temp_best_cnn_model.pth")
 
             loss_chart.line_chart(pd.DataFrame({
                 'Train Loss': history['train_loss'],
@@ -421,84 +440,160 @@ elif page == "⚙️ Huấn luyện":
             status.text(f"Epoch {epoch+1}/{epochs} | Train Loss: {t_loss:.4f} | Val Loss: {v_loss:.4f} | Val Acc: {v_acc:.4f}")
             time.sleep(0.02)
 
-        st.success(f"✅ Hoàn tất! Best Val Loss: {best_val_loss:.4f}. Mô hình lưu tại `models/best_cnn_model.pth`.")
-        st.info("Chuyển sang trang **📊 Đánh giá** để xem hiệu suất trên tập Test.")
+        st.success(f"✅ Hoàn tất! Best Val Loss: {best_val_loss:.4f}. Đang đánh giá trên tập Test...")
+
+        # Đánh giá trên tập test để lưu log
+        from src.engine import evaluate_metrics
+        model.load_state_dict(torch.load("models/temp_best_cnn_model.pth"))
+        model.eval()
+        
+        _, test_acc, preds, targets = eval_step(model, test_loader, criterion, device)
+        metrics = evaluate_metrics(targets, preds)
+        
+        # Ghi log
+        os.makedirs("experiments", exist_ok=True)
+        log_file = "experiments/experiments_log.csv"
+        file_exists = os.path.isfile(log_file)
+        
+        global_best_acc = 0.0
+        if file_exists:
+            try:
+                df_logs = pd.read_csv(log_file)
+                if not df_logs.empty and 'Test Acc' in df_logs.columns:
+                    global_best_acc = df_logs['Test Acc'].max()
+            except Exception:
+                pass
+                
+        is_new_best = metrics['Accuracy'] > global_best_acc
+        run_name = st.session_state.get('exp_name', "Run")
+        cm_str = str(metrics['Confusion Matrix'].tolist())
+        
+        with open(log_file, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["Run Name", "Batch Size", "Epochs", "LR", "Embed Dim", "Filters", "Kernel", "Dropout", "BatchNorm", "Best Val Loss", "Test Acc", "Precision", "Recall", "F1", "Confusion Matrix"])
+            writer.writerow([run_name, batch_size, epochs, learning_rate, embed_dim, num_filters, kernel_size, dropout_rate, use_batch_norm, f"{best_val_loss:.4f}", f"{metrics['Accuracy']:.4f}", f"{metrics['Precision']:.4f}", f"{metrics['Recall']:.4f}", f"{metrics['F1-Score']:.4f}", cm_str])
+        
+        if is_new_best:
+            if os.path.exists("models/temp_best_cnn_model.pth"):
+                os.rename("models/temp_best_cnn_model.pth", "models/best_cnn_model.pth")
+            with open("models/best_cnn_config.json", "w") as f:
+                json.dump(st.session_state['cnn_config'], f)
+            st.success(f"🏆 Cấu hình này đã đạt Test Accuracy tốt nhất ({metrics['Accuracy']:.4f}) và được lưu làm Best Model!")
+        else:
+            if os.path.exists("models/temp_best_cnn_model.pth"):
+                os.remove("models/temp_best_cnn_model.pth")
+            st.info(f"💾 Cấu hình này đạt Test Accuracy {metrics['Accuracy']:.4f} (Kỷ lục: {global_best_acc:.4f}). Kết quả đã được lưu lịch sử nhưng không ghi đè Best Model.")
+
+        st.info("Chuyển sang trang **📊 Đánh giá** để xem lịch sử và so sánh kết quả.")
 
 # ═══════════════════════════════════════════════
-#  TRANG 3: ĐÁNH GIÁ
+#  TRANG 3: ĐÁNH GIÁ & SO SÁNH
 # ═══════════════════════════════════════════════
 
 elif page == "📊 Đánh giá":
-    import torch
-    import torch.nn as nn
-    import os
     import seaborn as sns
-    from src.preprocessing.cnn_preprocessing import prepare_cnn_dataloaders
-    from src.cnn_model import MushroomCNN1D
-    from src.engine import eval_step, evaluate_metrics
 
-    st.title("📊 Đánh giá Mô hình CNN 1D")
+    st.title("📊 Đánh giá & So sánh Mô hình")
 
-    model_path = "models/best_cnn_model.pth"
-    if not os.path.exists(model_path) or 'cnn_config' not in st.session_state:
-        st.warning("Chưa có mô hình đã huấn luyện. Vui lòng chạy **Huấn luyện** trước.")
+    log_file = "experiments/experiments_log.csv"
+    if not os.path.exists(log_file):
+        st.warning("Chưa có dữ liệu thực nghiệm. Vui lòng huấn luyện ít nhất một cấu hình.")
     else:
-        config = st.session_state['cnn_config']
-        vocab = st.session_state['vocab']
-
-        # Chuẩn bị dữ liệu test
-        _, _, test_loader, _ = prepare_cnn_dataloaders(
-            X_train, y_train, X_val, y_val, X_test, y_test, batch_size=64
-        )
-
-        # Load mô hình
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = MushroomCNN1D(
-            vocab_size=config['vocab_size'],
-            embed_dim=config['embed_dim'],
-            num_filters=config['num_filters'],
-            kernel_size=config['kernel_size'],
-            dropout_rate=config['dropout_rate'],
-            use_batch_norm=config['use_batch_norm'],
-            seq_len=21
-        ).to(device)
-        model.load_state_dict(torch.load(model_path, map_location=device))
-
-        criterion = nn.BCELoss()
-        test_loss, test_acc, preds, targets = eval_step(model, test_loader, criterion, device)
-        metrics = evaluate_metrics(targets, preds)
-
-        # ── Metrics Cards ──
-        st.header("Kết quả trên tập Test")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Accuracy", f"{metrics['Accuracy']:.4f}")
-        c2.metric("Precision", f"{metrics['Precision']:.4f}")
-        c3.metric("Recall", f"{metrics['Recall']:.4f}")
-        c4.metric("F1-Score", f"{metrics['F1-Score']:.4f}")
-
-        st.markdown("---")
-
-        # ── Confusion Matrix ──
-        st.header("Confusion Matrix")
-        cm = metrics['Confusion Matrix']
-        fig_cm, ax_cm = plt.subplots(figsize=(5, 4))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                    xticklabels=['Edible (0)', 'Poisonous (1)'],
-                    yticklabels=['Edible (0)', 'Poisonous (1)'], ax=ax_cm)
-        ax_cm.set_ylabel("Nhãn thực tế")
-        ax_cm.set_xlabel("Nhãn dự đoán")
-        ax_cm.set_title("Confusion Matrix trên tập Test", fontweight='bold')
-        fig_cm.tight_layout()
-        st.pyplot(fig_cm)
-
-        st.markdown("---")
-
-        # ── Phân tích ──
-        st.header("Phân tích Overfitting / Underfitting")
-        if metrics['Accuracy'] > 0.95:
-            st.success("Mô hình đạt Accuracy rất cao trên tập Test. Kiểm tra biểu đồ Loss ở trang Huấn luyện để xác nhận Train Loss và Val Loss hội tụ cùng nhau (không phân kỳ) → Mô hình học tốt, không Overfitting.")
-        elif metrics['Accuracy'] > 0.85:
-            st.info("Mô hình đạt Accuracy khá tốt. Nếu Train Acc cao hơn Val Acc đáng kể → có dấu hiệu Overfitting nhẹ. Cân nhắc tăng Dropout hoặc giảm số Filters.")
+        df_logs = pd.read_csv(log_file)
+        if df_logs.empty:
+            st.warning("Chưa có dữ liệu thực nghiệm.")
         else:
-            st.warning("Mô hình có Accuracy chưa cao. Nếu cả Train Acc lẫn Val Acc đều thấp → Underfitting. Cân nhắc tăng embed_dim, num_filters hoặc số epochs.")
+            df_sorted = df_logs.sort_values(by="Test Acc", ascending=False).reset_index(drop=True)
+
+            # ── 1. Bảng so sánh ──
+            st.header("1 · Bảng so sánh thực nghiệm")
+            display_cols = ["Run Name", "Batch Size", "Epochs", "LR", "Embed Dim",
+                            "Filters", "Kernel", "Dropout", "BatchNorm",
+                            "Best Val Loss", "Test Acc", "Precision", "Recall", "F1"]
+            st.dataframe(df_sorted[display_cols], use_container_width=True)
+
+            st.markdown("---")
+
+            # ── 2. Biểu đồ so sánh Metrics ──
+            st.header("2 · Biểu đồ so sánh Metrics")
+            metric_cols = ["Test Acc", "Precision", "Recall", "F1"]
+            run_names = df_sorted["Run Name"].tolist()
+
+            fig, ax = plt.subplots(figsize=(max(8, len(run_names) * 2.5), 5))
+            x = np.arange(len(run_names))
+            width = 0.18
+            colors = [COLOR_EDIBLE, COLOR_POISONOUS, COLOR_NEUTRAL, COLOR_BAR]
+
+            for i, col in enumerate(metric_cols):
+                vals = df_sorted[col].astype(float).tolist()
+                bars = ax.bar(x + i * width, vals, width, label=col,
+                              color=colors[i], edgecolor='white')
+                for bar, v in zip(bars, vals):
+                    ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
+                            f"{v:.3f}", ha='center', va='bottom', fontsize=7.5)
+
+            ax.set_xticks(x + width * 1.5)
+            ax.set_xticklabels(run_names, rotation=45, ha='right')
+            ax.set_ylabel("Giá trị")
+            ax.set_title("So sánh Metrics giữa các cấu hình", fontweight='bold')
+            ax.legend(loc='lower right')
+            ax.set_ylim(0, 1.08)
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            fig.tight_layout()
+            st.pyplot(fig)
+            st.markdown("---")
+
+            # ── 3. Chi tiết từng cấu hình ──
+            st.header("3 · Chi tiết từng cấu hình")
+            selected_run = st.selectbox("Chọn cấu hình:", run_names)
+            row = df_sorted[df_sorted["Run Name"] == selected_run].iloc[0]
+
+            col_metric, col_cm = st.columns([1, 1])
+
+            with col_metric:
+                st.subheader("Metrics")
+                metrics_table = pd.DataFrame({
+                    "Metric": ["Accuracy", "Precision", "Recall", "F1-Score", "Best Val Loss"],
+                    "Giá trị": [
+                        f"{float(row['Test Acc']):.4f}",
+                        f"{float(row['Precision']):.4f}",
+                        f"{float(row['Recall']):.4f}",
+                        f"{float(row['F1']):.4f}",
+                        f"{float(row['Best Val Loss']):.4f}"
+                    ]
+                })
+                st.table(metrics_table)
+
+                st.subheader("Siêu tham số")
+                hp_table = pd.DataFrame({
+                    "Tham số": ["Batch Size", "Epochs", "Learning Rate",
+                                "Embed Dim", "Filters", "Kernel", "Dropout", "BatchNorm"],
+                    "Giá trị": [
+                        str(row["Batch Size"]), str(row["Epochs"]), str(row["LR"]),
+                        str(row["Embed Dim"]), str(row["Filters"]), str(row["Kernel"]),
+                        str(row["Dropout"]), str(row["BatchNorm"])
+                    ]
+                })
+                st.table(hp_table)
+
+            with col_cm:
+                st.subheader("Confusion Matrix")
+                try:
+                    cm = np.array(ast.literal_eval(str(row["Confusion Matrix"])))
+                    fig_cm, ax_cm = plt.subplots(figsize=(5, 4))
+                    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                                xticklabels=['Edible (0)', 'Poisonous (1)'],
+                                yticklabels=['Edible (0)', 'Poisonous (1)'], ax=ax_cm)
+                    ax_cm.set_ylabel("Nhãn thực tế")
+                    ax_cm.set_xlabel("Nhãn dự đoán")
+                    ax_cm.set_title(f"Confusion Matrix – {selected_run}", fontweight='bold')
+                    fig_cm.tight_layout()
+                    st.pyplot(fig_cm)
+                except Exception as e:
+                    st.error(f"Không thể hiển thị Confusion Matrix: {e}")
+
+
+
 

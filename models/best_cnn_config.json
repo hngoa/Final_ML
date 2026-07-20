@@ -1,0 +1,1 @@
+{"vocab_size": 118, "embed_dim": 16, "num_filters": 32, "kernel_size": 3, "dropout_rate": 0.3, "use_batch_norm": true}

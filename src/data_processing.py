@@ -92,8 +92,8 @@ def build_preprocessing_report(df_raw, df_clean, dropped_cols, splits, missing_b
         "samples_after": len(df_clean),
         "features_before": df_raw.shape[1] - 1,
         "features_after": df_clean.shape[1] - 1,
-        "missing_before": missing_before,
-        "missing_after": (df_clean == "?").sum().sum(),
+        "missing_before": int(missing_before),
+        "missing_after": int((df_clean == "?").sum().sum()),
         "duplicate_rows": int(df_raw.duplicated().sum()),
         "constant_columns": dropped_cols,
         "dropped_columns": dropped_cols,
@@ -161,3 +161,28 @@ def run_common_preprocessing_pipeline():
     save_processed_data(splits, indices, metadata)
     
     return df_raw, df_clean, metadata, validation_results
+
+
+def load_processed_data(processed_dir="data/processed"):
+    """
+    Load dữ liệu đã tiền xử lý từ thư mục data/processed.
+    Yêu cầu: chạy preprocess.py trước để tạo các file cần thiết.
+    """
+    X_train = pd.read_csv(f"{processed_dir}/X_train.csv")
+    X_val = pd.read_csv(f"{processed_dir}/X_val.csv")
+    X_test = pd.read_csv(f"{processed_dir}/X_test.csv")
+    y_train = pd.read_csv(f"{processed_dir}/y_train.csv").squeeze("columns")
+    y_val = pd.read_csv(f"{processed_dir}/y_val.csv").squeeze("columns")
+    y_test = pd.read_csv(f"{processed_dir}/y_test.csv").squeeze("columns")
+
+    df_clean = pd.read_csv(f"{processed_dir}/df_clean.csv")
+
+    with open(f"{processed_dir}/preprocessing_metadata.json", "r", encoding='utf-8') as f:
+        metadata = json.load(f)
+
+    with open(f"{processed_dir}/validation_results.json", "r", encoding='utf-8') as f:
+        validation_results = json.load(f)
+
+    splits = (X_train, X_val, X_test, y_train, y_val, y_test)
+    return df_clean, metadata, validation_results, splits
+
