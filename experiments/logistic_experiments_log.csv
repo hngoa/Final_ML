@@ -1,0 +1,3 @@
+Model,Run Name,Hyperparameters,Test Acc,Precision,Recall,F1,Train Time (s),Confusion Matrix
+Logistic,Run_17_25_41,Default Params,1.0000,1.0000,1.0000,1.0000,0.00,"[[631, 0], [0, 588]]"
+Logistic,Run_17_42_43,Default Params,1.0000,1.0000,1.0000,1.0000,0.04,"[[631, 0], [0, 588]]"

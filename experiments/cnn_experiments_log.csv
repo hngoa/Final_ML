@@ -1,0 +1,4 @@
+Model,Run Name,Hyperparameters,Test Acc,Precision,Recall,F1,Train Time (s),Confusion Matrix
+CNN,Run_17_32_01,"batch=64, epochs=30, lr=0.001, embed=16, filters=32, kernel=3, dropout=0.3, bn=True",1.0000,1.0000,1.0000,1.0000,26.52,"[[631, 0], [0, 588]]"
+CNN,Run_17_45_16,"batch=64, epochs=30, lr=0.001, embed=16, filters=32, kernel=3, dropout=0.3, bn=False",1.0000,1.0000,1.0000,1.0000,26.40,"[[631, 0], [0, 588]]"
+CNN,Run_17_53_44,"batch=64, epochs=30, lr=0.001, embed=16, filters=16, kernel=3, dropout=0.3, bn=True",1.0000,1.0000,1.0000,1.0000,30.40,"[[631, 0], [0, 588]]"
