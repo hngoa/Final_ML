@@ -14,7 +14,6 @@ from src.data_processing import (
     load_raw_data,
     load_processed_data
 )
-from predictor import Predictor
 
 
 # ── Màu sắc trung tính xuyên suốt ──
